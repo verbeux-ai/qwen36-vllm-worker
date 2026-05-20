@@ -21,9 +21,8 @@ def start_vllm():
         **os.environ,
         "HF_TOKEN":               HF_TOKEN,
         "HUGGING_FACE_HUB_TOKEN": HF_TOKEN,
-        "VLLM_NVFP4_GEMM_BACKEND":      "flashinfer-cutlass",
-        "VLLM_USE_FLASHINFER_SAMPLER":  "1",
-        "PYTORCH_CUDA_ALLOC_CONF":      "expandable_segments:True",
+        # Outros vars vêm do Dockerfile (VLLM_USE_FLASHINFER_SAMPLER, VLLM_NO_USAGE_STATS,
+        # VLLM_WORKER_MULTIPROC_METHOD, NCCL_*, OMP_NUM_THREADS, PYTORCH_CUDA_ALLOC_CONF).
     }
 
     if os.path.isdir("/runpod-volume"):
@@ -44,8 +43,8 @@ def start_vllm():
         "--enable-chunked-prefill",
         "--enable-prefix-caching",
         "--reasoning-parser",            "qwen3",
-        "--tool-call-parser",            "qwen3_coder",
         "--enable-auto-tool-choice",
+        "--tool-call-parser",            "qwen3_coder",
         "--speculative-config",          '{"method":"mtp","num_speculative_tokens":3}',
         "--trust-remote-code",
         "--host",                        "0.0.0.0",

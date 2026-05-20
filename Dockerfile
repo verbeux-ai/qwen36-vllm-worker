@@ -1,16 +1,16 @@
-FROM vllm/vllm-openai:v0.21.0
+FROM vllm/vllm-openai:nightly-07351e0883470724dd5a7e9730ed10e01fc99d08
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
-    VLLM_NVFP4_GEMM_BACKEND=flashinfer-cutlass \
     VLLM_USE_FLASHINFER_SAMPLER=1 \
-    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    VLLM_NO_USAGE_STATS=1 \
+    VLLM_WORKER_MULTIPROC_METHOD=spawn \
+    NCCL_CUMEM_ENABLE=0 \
+    NCCL_P2P_DISABLE=1 \
+    OMP_NUM_THREADS=1 \
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:512
 
 RUN pip install --no-cache-dir runpod==1.7.7 requests==2.32.3
-
-# Patch TurboQuant attention backend to fix MTP drafter workspace allocation
-COPY turboquant_patch.py /tmp/turboquant_patch.py
-RUN python3 /tmp/turboquant_patch.py && rm /tmp/turboquant_patch.py
 
 WORKDIR /worker
 COPY handler.py /worker/handler.py
