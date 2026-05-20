@@ -35,7 +35,6 @@ def start_vllm():
         "--model",                       MODEL_ID,
         "--served-model-name",           SERVED_NAME,
         "--quantization",                "modelopt",
-        "--kv-cache-dtype",              "fp8_e5m2",
         "--max-model-len",               MAX_LEN,
         "--max-num-seqs",                MAX_SEQS,
         "--max-num-batched-tokens",      MAX_BATCH,
