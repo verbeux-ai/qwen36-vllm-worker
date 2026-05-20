@@ -1,4 +1,4 @@
-FROM vllm/vllm-openai:nightly-07351e0883470724dd5a7e9730ed10e01fc99d08
+FROM vllm/vllm-openai:nightly-4f940896a32c9e2a0eba7f50d521bf5f6b4de458
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
