@@ -36,6 +36,7 @@ def start_vllm():
         "--model",                       MODEL_ID,
         "--served-model-name",           SERVED_NAME,
         "--quantization",                "modelopt",
+        "--kv-cache-dtype",              "fp8_e5m2",
         "--max-model-len",               MAX_LEN,
         "--max-num-seqs",                MAX_SEQS,
         "--max-num-batched-tokens",      MAX_BATCH,
@@ -102,6 +103,17 @@ def _build_payload(data, stream):
 # o SDK agrega yields em uma lista no output do /run e /status.
 def handler(job):
     data = job["input"]
+
+    # Admin: scrape vLLM /metrics pra ver acceptance rate do MTP/spec decoding
+    if data.get("_admin") == "metrics":
+        r = requests.get(f"{BASE_URL}/metrics", timeout=10)
+        lines = r.text.splitlines()
+        relevant = [l for l in lines if not l.startswith("#") and any(
+            k in l for k in ["spec_decode", "draft", "accepted", "num_emitted", "acceptance"]
+        )]
+        yield {"metrics": "\n".join(relevant) or "(no spec_decode metrics found)"}
+        return
+
     want_stream = data.get("stream", False)
     url, payload = _build_payload(data, want_stream)
 
