@@ -5,15 +5,76 @@ import subprocess
 import requests
 import runpod
 
-MODEL_ID    = os.environ.get("MODEL_ID",       "AEON-7/Qwen3.6-27B-AEON-Ultimate-Uncensored-Multimodal-NVFP4-MTP")
-SERVED_NAME = os.environ.get("SERVED_NAME",    "qwen3.6-27b")
-HF_TOKEN    = os.environ.get("HF_TOKEN",       "")
-MAX_LEN     = os.environ.get("MAX_MODEL_LEN",  "262144")
-MAX_SEQS    = os.environ.get("MAX_NUM_SEQS",   "12")
-MAX_BATCH   = os.environ.get("MAX_NUM_BATCHED_TOKENS", "65536")
-GPU_UTIL    = os.environ.get("GPU_MEMORY_UTIL", "0.94")
-PORT        = 8000
-BASE_URL    = f"http://localhost:{PORT}"
+# ---------------------------------------------------------------------------
+# Configuração via variáveis de ambiente — sem defaults modelo-específicos
+# ---------------------------------------------------------------------------
+
+MODEL_ID    = os.environ["MODEL_ID"]   # obrigatória; erro explícito se ausente
+SERVED_NAME = os.environ.get("SERVED_NAME", MODEL_ID.split("/")[-1].lower())
+HF_TOKEN    = os.environ.get("HF_TOKEN", "")
+
+# Capacidade (--max-num-seqs e --max-num-batched-tokens são flags bloqueadas)
+MAX_LEN   = os.environ.get("MAX_MODEL_LEN",          "32768")
+MAX_SEQS  = os.environ.get("MAX_NUM_SEQS",            "12")
+MAX_BATCH = os.environ.get("MAX_NUM_BATCHED_TOKENS",  "65536")
+GPU_UTIL  = os.environ.get("GPU_MEMORY_UTIL",         "0.95")
+TP_SIZE   = os.environ.get("TENSOR_PARALLEL_SIZE",    "1")
+
+# Quantização / precisão — vazios por padrão; o vLLM decide automaticamente
+QUANTIZATION   = os.environ.get("QUANTIZATION",    "")  # ex: compressed-tensors, modelopt, fp8, awq
+KV_CACHE_DTYPE = os.environ.get("KV_CACHE_DTYPE",  "")  # ex: fp8
+
+# MoE — só inclui a flag se definido
+MOE_BACKEND = os.environ.get("MOE_BACKEND", "")          # ex: flashinfer_cutlass
+
+# Parsers — todos opcionais; defina só se o modelo suportar
+REASONING_PARSER  = os.environ.get("REASONING_PARSER",  "")  # ex: qwen3, deepseek_r1
+TOOL_CALL_PARSER  = os.environ.get("TOOL_CALL_PARSER",  "")  # ex: qwen3_coder, llama3_json
+GENERATION_CONFIG = os.environ.get("GENERATION_CONFIG", "")  # ex: vllm
+
+# Speculative decoding — JSON string ou vazio
+# ex: '{"method": "mtp", "num_speculative_tokens": 2}'
+SPECULATIVE_CONFIG = os.environ.get("SPECULATIVE_CONFIG", "")
+
+# Multimodal — opcionais
+MM_PROCESSOR_CACHE  = os.environ.get("MM_PROCESSOR_CACHE_TYPE", "")  # ex: shm
+# IMPORTANTE: formato JSON obrigatório, ex: '{"image": 16}'  (não image=16)
+LIMIT_MM_PER_PROMPT = os.environ.get("LIMIT_MM_PER_PROMPT", "")
+
+# Escape hatch para qualquer flag extra não coberta acima
+EXTRA_ARGS = os.environ.get("EXTRA_VLLM_ARGS", "")
+
+PORT     = 8000
+BASE_URL = f"http://localhost:{PORT}"
+
+
+def _build_vllm_cmd():
+    cmd = [
+        "python3", "-m", "vllm.entrypoints.openai.api_server",
+        "--model",                  MODEL_ID,
+        "--served-model-name",      SERVED_NAME,
+        "--max-model-len",          MAX_LEN,
+        "--max-num-seqs",           MAX_SEQS,
+        "--max-num-batched-tokens", MAX_BATCH,
+        "--gpu-memory-utilization", GPU_UTIL,
+        "--tensor-parallel-size",   TP_SIZE,
+        "--enable-chunked-prefill",
+        "--enable-prefix-caching",
+        "--trust-remote-code",
+        "--host", "0.0.0.0",
+        "--port", str(PORT),
+    ]
+    if QUANTIZATION:        cmd += ["--quantization",          QUANTIZATION]
+    if KV_CACHE_DTYPE:      cmd += ["--kv-cache-dtype",        KV_CACHE_DTYPE]
+    if MOE_BACKEND:         cmd += ["--moe_backend",           MOE_BACKEND]
+    if REASONING_PARSER:    cmd += ["--reasoning-parser",      REASONING_PARSER]
+    if TOOL_CALL_PARSER:    cmd += ["--enable-auto-tool-choice", "--tool-call-parser", TOOL_CALL_PARSER]
+    if GENERATION_CONFIG:   cmd += ["--generation-config",     GENERATION_CONFIG]
+    if SPECULATIVE_CONFIG:  cmd += ["--speculative-config",    SPECULATIVE_CONFIG]
+    if MM_PROCESSOR_CACHE:  cmd += ["--mm-processor-cache-type", MM_PROCESSOR_CACHE]
+    if LIMIT_MM_PER_PROMPT: cmd += ["--limit-mm-per-prompt",   LIMIT_MM_PER_PROMPT]
+    if EXTRA_ARGS:          cmd += EXTRA_ARGS.split()
+    return cmd
 
 
 def start_vllm():
@@ -21,35 +82,13 @@ def start_vllm():
         **os.environ,
         "HF_TOKEN":               HF_TOKEN,
         "HUGGING_FACE_HUB_TOKEN": HF_TOKEN,
-        # Outros vars vêm do Dockerfile (VLLM_USE_FLASHINFER_SAMPLER, VLLM_NO_USAGE_STATS,
-        # VLLM_WORKER_MULTIPROC_METHOD, NCCL_*, OMP_NUM_THREADS, PYTORCH_CUDA_ALLOC_CONF).
     }
-
     if os.path.isdir("/runpod-volume"):
         cache_dir = "/runpod-volume/hf-cache"
         os.makedirs(cache_dir, exist_ok=True)
         env["HF_HOME"] = cache_dir
 
-    cmd = [
-        "python3", "-m", "vllm.entrypoints.openai.api_server",
-        "--model",                       MODEL_ID,
-        "--served-model-name",           SERVED_NAME,
-        "--quantization",                "modelopt",
-        "--max-model-len",               MAX_LEN,
-        "--max-num-seqs",                MAX_SEQS,
-        "--max-num-batched-tokens",      MAX_BATCH,
-        "--gpu-memory-utilization",      GPU_UTIL,
-        "--enable-chunked-prefill",
-        "--enable-prefix-caching",
-        "--reasoning-parser",            "qwen3",
-        "--enable-auto-tool-choice",
-        "--tool-call-parser",            "qwen3_coder",
-        "--speculative-config",          '{"method":"mtp","num_speculative_tokens":3}',
-        "--trust-remote-code",
-        "--host",                        "0.0.0.0",
-        "--port",                        str(PORT),
-    ]
-
+    cmd = _build_vllm_cmd()
     print(f"[worker] start: {' '.join(cmd)}", flush=True)
     subprocess.Popen(cmd, env=env)
 
@@ -69,30 +108,13 @@ def start_vllm():
 
 
 def _build_payload(data, stream):
+    """Passthrough completo: repassa todos os campos do input para o vLLM,
+    sobrescrevendo apenas 'model' e 'stream'. Compatível com qualquer modelo."""
     if "messages" in data:
-        payload = {
-            "model":       SERVED_NAME,
-            "messages":    data["messages"],
-            "max_tokens":  data.get("max_tokens",  2048),
-            "temperature": data.get("temperature", 0.7),
-            "top_p":       data.get("top_p",       0.9),
-            "stream":      stream,
-        }
-        for k in ("top_k", "repetition_penalty", "stop", "tools", "tool_choice",
-                  "response_format", "seed", "frequency_penalty", "presence_penalty",
-                  "stream_options"):
-            if k in data:
-                payload[k] = data[k]
         url = f"{BASE_URL}/v1/chat/completions"
     else:
-        payload = {
-            "model":       SERVED_NAME,
-            "prompt":      data.get("prompt", ""),
-            "max_tokens":  data.get("max_tokens", 512),
-            "temperature": data.get("temperature", 0.7),
-            "stream":      stream,
-        }
         url = f"{BASE_URL}/v1/completions"
+    payload = {**data, "model": SERVED_NAME, "stream": stream}
     return url, payload
 
 
@@ -102,7 +124,7 @@ def _build_payload(data, stream):
 def handler(job):
     data = job["input"]
 
-    # Admin: scrape vLLM /metrics pra ver acceptance rate do MTP/spec decoding
+    # Admin: scrape vLLM /metrics (ex: acceptance rate do speculative decoding)
     if data.get("admin_cmd") == "metrics":
         r = requests.get(f"{BASE_URL}/metrics", timeout=10)
         lines = r.text.splitlines()

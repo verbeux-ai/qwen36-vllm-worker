@@ -42,5 +42,5 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ghcr.io/${{ steps.owner.outputs.lc }}/qwen36-vllm-worker:latest
-            ghcr.io/${{ steps.owner.outputs.lc }}/qwen36-vllm-worker:${{ github.sha }}
+            ghcr.io/${{ steps.owner.outputs.lc }}/vllm-worker:latest
+            ghcr.io/${{ steps.owner.outputs.lc }}/vllm-worker:${{ github.sha }}
