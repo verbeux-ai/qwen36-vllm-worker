@@ -16,20 +16,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certifi
     rm -rf /var/lib/apt/lists/* && \
     pip install --no-cache-dir runpod==1.7.7 requests==2.32.3 hf_transfer
 
-# Pre-bake do modelo na imagem (~25-30GB extra).
-# Trade-off escolhido: cold-start em vast.ai cai dramaticamente quando o host já tem a imagem
-# em cache. Se o build não tiver acesso (modelo gated sem token), cai pra download em runtime.
+COPY prebake.py /tmp/prebake.py
+
 ARG PREBAKE_MODEL=AEON-7/Qwen3.6-27B-AEON-Ultimate-Uncensored-NVFP4
 ARG HF_TOKEN=""
+
+# Layer 1: metadados (config, tokenizer, *.py) — pequeno, push rápido.
 RUN if [ -n "$PREBAKE_MODEL" ]; then \
-      echo "[prebake] downloading ${PREBAKE_MODEL} into HF_HOME=/models" && \
       HF_TOKEN="$HF_TOKEN" HUGGING_FACE_HUB_TOKEN="$HF_TOKEN" \
-      python3 -c "from huggingface_hub import snapshot_download; \
-                  snapshot_download('${PREBAKE_MODEL}', max_workers=8, \
-                  allow_patterns=['*.safetensors','*.json','*.txt','tokenizer*','*.py','*.md'])" \
-      && echo "${PREBAKE_MODEL}" > /models/PREBAKED \
-      && du -sh /models 2>/dev/null \
-      || echo "[prebake] WARN: falhou, modelo será baixado em runtime"; \
+      python3 -u /tmp/prebake.py "$PREBAKE_MODEL" '*.json,*.txt,tokenizer*,*.py,*.md,chat_template*' \
+      && echo "$PREBAKE_MODEL" > /models/PREBAKED_META; \
+    fi
+
+# Layer 2: weights (.safetensors) — grande mas em layer separado pra paralelizar push GHCR.
+RUN if [ -n "$PREBAKE_MODEL" ] && [ -f /models/PREBAKED_META ]; then \
+      HF_TOKEN="$HF_TOKEN" HUGGING_FACE_HUB_TOKEN="$HF_TOKEN" \
+      python3 -u /tmp/prebake.py "$PREBAKE_MODEL" '*.safetensors,*.safetensors.index.json' \
+      && echo "$PREBAKE_MODEL" > /models/PREBAKED \
+      && du -sh /models; \
     fi
 
 WORKDIR /worker
