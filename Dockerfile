@@ -11,13 +11,17 @@ ENV DEBIAN_FRONTEND=noninteractive \
     OMP_NUM_THREADS=1 \
     HF_HOME=/models
 
-RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certificates && \
+RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certificates git git-lfs && \
     rm -rf /var/lib/apt/lists/* && \
-    pip install --no-cache-dir runpod==1.7.7 requests==2.32.3 hf_transfer
+    pip install --no-cache-dir runpod==1.7.7 requests==2.32.3 hf_transfer uv
+
+# Pre-clone PyWorker (evita git clone runtime no cold-start em vast.ai)
+RUN git clone --depth 1 https://github.com/vast-ai/pyworker.git /opt/vast-pyworker && \
+    mkdir -p /var/log/portal
 
 COPY prebake.py /tmp/prebake.py
 
-ARG PREBAKE_MODEL=AEON-7/Qwen3.6-27B-AEON-Ultimate-Uncensored-NVFP4
+ARG PREBAKE_MODEL=sakamakismile/Huihui-Qwen3.6-27B-abliterated-NVFP4-MTP
 ARG HF_TOKEN=""
 
 # Layer 1: metadados (config, tokenizer, *.py) — pequeno, push rápido.
