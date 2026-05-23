@@ -46,15 +46,28 @@ jobs:
         id: owner
         run: echo "lc=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
-      - name: Build & Push
+      - name: Build & Push full (com prebake)
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64
           push: true
           build-args: |
-            PREBAKE_MODEL=${{ github.event.inputs.prebake_model || 'AEON-7/Qwen3.6-27B-AEON-Ultimate-Uncensored-NVFP4' }}
+            PREBAKE_MODEL=${{ github.event.inputs.prebake_model || 'sakamakismile/Huihui-Qwen3.6-27B-abliterated-NVFP4-MTP' }}
             HF_TOKEN=${{ secrets.HF_TOKEN }}
           tags: |
             ghcr.io/${{ steps.owner.outputs.lc }}/vllm-worker:latest
             ghcr.io/${{ steps.owner.outputs.lc }}/vllm-worker:${{ github.sha }}
+
+      - name: Build & Push slim (sem prebake — modelo runtime do HF)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            PREBAKE_MODEL=
+            HF_TOKEN=${{ secrets.HF_TOKEN }}
+          tags: |
+            ghcr.io/${{ steps.owner.outputs.lc }}/vllm-worker:slim
+            ghcr.io/${{ steps.owner.outputs.lc }}/vllm-worker:slim-${{ github.sha }}
